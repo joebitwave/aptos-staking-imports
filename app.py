@@ -4,6 +4,7 @@ import io
 from datetime import datetime
 from calendar import monthrange
 import uuid
+import re
 
 # Set page title
 st.title("Transaction CSV Converter")
@@ -66,7 +67,7 @@ Aptos Mainnet Wallet 187,leCoNShXLHNhE8suVoeb,,9,,apt,,0x08ef33d146a95f085fbcf9f
 Aptos Mainnet Wallet 188,oLQKUUtffZltmOtluvgp,,9,,apt,,0xc4fce0915e96da42bafa97db7e497896e87763bdd3634486ec4e8a5353183503,,,Wallet
 Aptos Mainnet Wallet 189,U6nz76SXRYumyUWDtQGr,,9,,apt,,0x94685b08149f4eae3c75d21287a2f3b74131dae2a0cb7b04adcefca0af644229,,,Wallet
 Aptos Mainnet Wallet 19,RBpIy9RxJ3WObsUrmHw7,,9,,apt,,0x9342065552aa86d663bd13b1b43000da75add0f1fa422882d56377a9e6208a3a,,,Wallet
-Aptos Mainnet Wallet 190,XAEGgthXTek01dtA69ln,,9,,apt,,0xaa321de84b692666439086bf2bd251f56c9a5d7cc129d8600442093519d8100b,,,Wallet
+Aptos Mainnet Wallet 190,XAEGgthXTek01dtA69ln,,9,,apt,,0xaa321de84b692666439086bf2bd251f56c9a5d7cc129d860044BROK
 Aptos Mainnet Wallet 191,sKKmT4VRzdMsY5ZcAPWo,,9,,apt,,0x2fccfed3d745d80b8f72dc5235bec7d82d5fe80c63ab851e4eb22e1829cdcdaa,,,Wallet
 Aptos Mainnet Wallet 192,qInei5cPT1TpAoyD9l5Y,,9,,apt,,0x6064d2f4c38b65e9b78fbdf8a80f084159341d47b5e0c192492923326d1bed0a,,,Wallet
 Aptos Mainnet Wallet 193,Dk6afYe24zrMg00O6THa,,9,,apt,,0x54ba224e60b095a35322a851adf92e81dd6cb7fd9ee4e2e9a281681501892ec8,,,Wallet
@@ -221,9 +222,6 @@ Wallet 90 Staked Balance,apt.0x.0x887dbc66257a99518b98ffc0b86ab84dd9974aea166749
 # Load Wallets List into DataFrame
 wallets_df = pd.read_csv(io.StringIO(wallets_csv))
 
-# Create lookup dictionary for faster mapping
-wallet_lookup = dict(zip(wallets_df['name'], wallets_df['id']))
-
 # File uploader
 uploaded_file = st.file_uploader("Upload a CSV file", type=["csv"])
 
@@ -272,15 +270,27 @@ if uploaded_file is not None:
                 st.warning(f"Invalid Month format in row {idx+1}: {month_str}. Skipping row.")
                 continue
             
-            # Get accountId from Wallets List
+            # Get accountId from Wallets List using partial match
             destination_wallet = row['Destination Wallet']
-            staked_wallet_name = f"{destination_wallet} Staked Balance"
-            account_id = wallet_lookup.get(staked_wallet_name, '')
+            # Extract wallet number (e.g., '52' from 'Aptos Mainnet Wallet 52')
+            match = re.search(r'\b(\d+)\b', destination_wallet)
+            wallet_number = match.group(1) if match else None
             
-            # Alert if no matching staking wallet is found
-            if not account_id and staked_wallet_name not in missing_wallets:
-                st.warning(f"{destination_wallet} is missing a staking wallet")
-                missing_wallets.add(staked_wallet_name)
+            account_id = ''
+            if wallet_number:
+                # Search for partial match: "Wallet <number> Staked Balance"
+                target_pattern = rf'Wallet\s*{wallet_number}\s*Staked\s*Balance'
+                matching_rows = wallets_df[wallets_df['name'].str.contains(target_pattern, case=False, regex=True)]
+                if not matching_rows.empty:
+                    account_id = matching_rows.iloc[0]['id']
+                else:
+                    if destination_wallet not in missing_wallets:
+                        st.warning(f"{destination_wallet} is missing a staking wallet")
+                        missing_wallets.add(destination_wallet)
+            else:
+                if destination_wallet not in missing_wallets:
+                    st.warning(f"{destination_wallet} is missing a staking wallet")
+                    missing_wallets.add(destination_wallet)
             
             # Construct blockchainId
             blockchain_id = f"{account_id}.stakingrewards.{mmddyy}" if account_id else f"stakingrewards.{mmddyy}"

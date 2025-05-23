@@ -250,6 +250,9 @@ if uploaded_file is not None:
             'description', 'fromAddress', 'toAddress', 'groupId'
         ])
         
+        # Track missing staking wallets to avoid duplicate alerts
+        missing_wallets = set()
+        
         # Populate output DataFrame
         output_data = []
         for idx, row in df.iterrows():
@@ -271,7 +274,13 @@ if uploaded_file is not None:
             
             # Get accountId from Wallets List
             destination_wallet = row['Destination Wallet']
-            account_id = wallet_lookup.get(destination_wallet, '')
+            staked_wallet_name = f"{destination_wallet} Staked Balance"
+            account_id = wallet_lookup.get(staked_wallet_name, '')
+            
+            # Alert if no matching staking wallet is found
+            if not account_id and staked_wallet_name not in missing_wallets:
+                st.warning(f"{destination_wallet} is missing a staking wallet")
+                missing_wallets.add(staked_wallet_name)
             
             # Construct blockchainId
             blockchain_id = f"{account_id}.stakingrewards.{mmddyy}" if account_id else f"stakingrewards.{mmddyy}"

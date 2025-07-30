@@ -90,7 +90,7 @@ Aptos Mainnet Wallet 183 Staked Balance,apt.0x.0x8a78c7d3a66bb09251622a682f8d133
 Aptos Mainnet Wallet 184,I4VQBHrHmMX09sqxfC3k,,9,,apt,,0x5b84f643a92ec5259123be474679f28f5f232e9ab178db0de38b79edd28419b7,,,Wallet
 Aptos Mainnet Wallet 184 vesting tokens,apt.0x.0x5b84f643a92ec5259123be474679f28f5f232e9ab178db0de38b79edd28419b7,,22,,,,,,,Wallet
 Aptos Mainnet Wallet 185,klqdh3DpVWG2iico1LSR,,9,,apt,,0xce7ff9f0b8bbf80b240bd86c389a3bbfe9bb59219da0679680fe2acd6fb85393,,,Wallet
-Aptos Mainnet Wallet 185 vesting tokens,apt.0x.0xce7ff9f0b8bbf80b240bd86c389a3bbfe9bb59219da0679680fe2acd6fb85393,,22,,,,,,,Wallet
+Aptos Mainnet Wallet 185 vesting tokens,apt.0x.0xce7ff9f0b8bbf80b240bd86c389a3bbfe9bb59219da0679680fe2acd6fb85393,,,Wallet
 Aptos Mainnet Wallet 186,S91vDvDaXOR6gFn6GVlk,,9,,apt,,0x0756c80f0597fc221fe043d5388949b34151a4efe5753965bbfb0ed7d0be08ea,,,Wallet
 Aptos Mainnet Wallet 187,leCoNShXLHNhE8suVoeb,,9,,apt,,0x08ef33d146a95f085fbcf9fd0ed5362de7bc69db5c7d5d9dfd3d8c8acd92b559,,,Wallet
 Aptos Mainnet Wallet 188,oLQKUUtffZltmOtluvgp,,9,,apt,,0xc4fce0915e96da42bafa97db7e497896e87763bdd3634486ec4e8a5353183503,,,Wallet
@@ -268,4 +268,121 @@ uploaded_file = st.file_uploader("Upload a CSV file", type=["csv"])
 if uploaded_file is not None:
     try:
         # Read the uploaded CSV
-        df = pd.read_csv(uploaded
+        df = pd.read_csv(uploaded_file)
+        
+        # Validate required columns
+        required_columns = ['Month', 'Destination Wallet', 'Total Asset Quantity', 'Total Value (USD)']
+        if not all(col in df.columns for col in required_columns):
+            st.error("Uploaded CSV must contain columns: Month, Destination Wallet, Total Asset Quantity, Total Value (USD)")
+            st.stop()
+        
+        # Display the uploaded data
+        st.subheader("Uploaded Data")
+        st.dataframe(df)
+        
+        # Create output DataFrame with required columns
+        output_df = pd.DataFrame(columns=[
+            'id', 'remoteContactId', 'amount', 'amountTicker', 'cost', 'costTicker',
+            'fee', 'feeTicker', 'time', 'blockchainId', 'memo', 'transactionType',
+            'accountId', 'contactId', 'categoryId', 'taxExempt', 'tradeId',
+            'description', 'fromAddress', 'toAddress', 'groupId'
+        ])
+        
+        # Track missing staking wallets to avoid duplicate alerts
+        missing_wallets = set()
+        
+        # Populate output DataFrame
+        output_data = []
+        for idx, row in df.iterrows():
+            # Generate unique ID
+            unique_id = str(uuid.uuid4())
+            
+            # Format time: 12:00pm on last day of the month
+            month_str = row['Month']
+            try:
+                date_obj = datetime.strptime(month_str, '%Y-%m')
+                last_day = monthrange(date_obj.year, date_obj.month)[1]
+                time_obj = datetime(date_obj.year, date_obj.month, last_day, 12, 0)
+                formatted_time = time_obj.strftime('%m/%d/%y %I:%M%p').lower()
+                # For blockchainId, get MMDDYY
+                mmddyy = time_obj.strftime('%m%d%y')
+            except ValueError:
+                st.warning(f"Invalid Month format in row {idx+1}: {month_str}. Skipping row.")
+                continue
+            
+            # Get accountId from Wallets List using partial match
+            destination_wallet = row['Destination Wallet']
+            # Extract wallet number (e.g., '52' from 'Aptos Mainnet Wallet 52')
+            match = re.search(r'\b(\d+)\b', destination_wallet)
+            wallet_number = match.group(1) if match else None
+            
+            account_id = ''
+            if wallet_number:
+                # Search for partial match: "Wallet <number> Staked Balance"
+                target_pattern = rf'Wallet\s*{wallet_number}\s*Staked\s*Balance'
+                matching_rows = wallets_df[wallets_df['name'].str.contains(target_pattern, case=False, regex=True)]
+                if not matching_rows.empty:
+                    account_id = matching_rows.iloc[0]['id']
+                else:
+                    if destination_wallet not in missing_wallets:
+                        st.warning(f"{destination_wallet} is missing a staking wallet")
+                        missing_wallets.add(destination_wallet)
+            else:
+                if destination_wallet not in missing_wallets:
+                    st.warning(f"{destination_wallet} is missing a staking wallet")
+                    missing_wallets.add(destination_wallet)
+            
+            # Construct blockchainId
+            blockchain_id = f"{account_id}.stakingrewards.{mmddyy}" if account_id else f"stakingrewards.{mmddyy}"
+            
+            output_data.append({
+                'id': unique_id,
+                'remoteContactId': '',
+                'amount': row['Total Asset Quantity'],
+                'amountTicker': 'APT',
+                'cost': row['Total Value (USD)'],
+                'costTicker': 'USD',
+                'fee': '',
+                'feeTicker': '',
+                'time': formatted_time,
+                'blockchainId': blockchain_id,
+                'memo': '',
+                'transactionType': 'deposit',
+                'accountId': account_id,
+                'contactId': 'nFc4OUI5w6wSa6zFKQVj.526',
+                'categoryId': 'nFc4OUI5w6wSa6zFKQVj.265',
+                'taxExempt': 'FALSE',
+                'tradeId': '',
+                'description': 'staking rewards import',
+                'fromAddress': '',
+                'toAddress': '',
+                'groupId': ''
+            })
+        
+        if not output_data:
+            st.error("No valid rows processed. Please check the Month column format (e.g., '2025-01').")
+            st.stop()
+        
+        output_df = pd.DataFrame(output_data)
+        
+        # Display the processed data
+        st.subheader("Processed Data (Output Format)")
+        st.dataframe(output_df)
+        
+        # Convert output data to CSV
+        csv_buffer = io.StringIO()
+        output_df.to_csv(csv_buffer, index=False)
+        csv_data = csv_buffer.getvalue()
+        
+        # Provide download button for the new CSV
+        st.subheader("Download Processed CSV")
+        st.download_button(
+            label="Download Transaction CSV",
+            data=csv_data,
+            file_name="processed_transactions.csv",
+            mime="text/csv"
+        )
+    except Exception as e:
+        st.error(f"Error processing file: {str(e)}")
+else:
+    st.info("Please upload a CSV file to proceed.")
